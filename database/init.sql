@@ -20,3 +20,15 @@ CREATE TABLE node_performance (
     avg_profit FLOAT,
     last_updated TIMESTAMP
 );
+
+CREATE TABLE virtual_positions (
+    symbol VARCHAR(10) PRIMARY KEY,
+    quantity FLOAT,
+    avg_price FLOAT,
+    last_updated TIMESTAMP
+);
+
+CREATE TABLE app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);

@@ -6,7 +6,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.trading.requests import MarketOrderRequest
 
-from db import log_trade_decision
+from db import apply_virtual_fill, get_setting, log_trade_decision
 from schemas import FinalDecision, MarketData
 import discord_notifier
 
@@ -35,15 +35,24 @@ def execute_trade(symbol: str, market_data: MarketData, decision: FinalDecision)
     if qty <= 0:
         return None
 
-    mode = os.getenv(TRADING_MODE_ENV, "paper").lower()
+    mode = (get_setting("TRADING_MODE", os.getenv(TRADING_MODE_ENV, "paper")) or "paper").lower()
 
     if mode == "virtual":
         order_id = f"virtual-{symbol}-{int(time.time())}"
+        side = "BUY" if decision.final_decision == "BUY" else "SELL"
+        realized_pnl, entry_price_used = apply_virtual_fill(
+            symbol=symbol,
+            side=side,
+            qty=qty,
+            price=market_data.current_price,
+        )
         log_trade_decision(
             symbol=symbol,
             market_timestamp=market_data.timestamp,
             decision=decision,
-            entry_price=market_data.current_price,
+            entry_price=entry_price_used or market_data.current_price,
+            exit_price=market_data.current_price if side == "SELL" else None,
+            profit_loss=realized_pnl,
         )
         discord_notifier.send_trade_notification(
             symbol=symbol,

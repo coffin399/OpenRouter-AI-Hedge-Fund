@@ -2,7 +2,7 @@ import json
 import os
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
 
@@ -130,3 +130,90 @@ def get_recent_trades(limit: int = 50) -> list[dict[str, Any]]:
             }
         )
     return results
+
+
+def apply_virtual_fill(symbol: str, side: str, qty: float, price: float) -> Tuple[Optional[float], Optional[float]]:
+    """Update virtual_positions and compute realized PnL for virtual trades.
+
+    Returns (realized_pnl, entry_price_used).
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT quantity, avg_price FROM virtual_positions WHERE symbol = %s",
+                (symbol,),
+            )
+            row = cur.fetchone()
+            if row:
+                current_qty, avg_price = float(row[0] or 0.0), float(row[1] or 0.0)
+            else:
+                current_qty, avg_price = 0.0, 0.0
+
+            realized_pnl: Optional[float] = None
+            entry_price_used: Optional[float] = None
+
+            if side == "BUY":
+                new_qty = current_qty + qty
+                if new_qty > 0:
+                    new_avg = ((current_qty * avg_price) + (qty * price)) / new_qty
+                else:
+                    new_avg = price
+                cur.execute(
+                    """
+                    INSERT INTO virtual_positions (symbol, quantity, avg_price, last_updated)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (symbol) DO UPDATE
+                    SET quantity = EXCLUDED.quantity,
+                        avg_price = EXCLUDED.avg_price,
+                        last_updated = EXCLUDED.last_updated
+                    """,
+                    (symbol, new_qty, new_avg, datetime.utcnow()),
+                )
+                entry_price_used = price
+            else:  # SELL
+                sell_qty = min(qty, current_qty) if current_qty > 0 else 0.0
+                if sell_qty > 0 and current_qty > 0:
+                    realized_pnl = (price - avg_price) * sell_qty
+                    new_qty = current_qty - sell_qty
+                    if new_qty <= 0:
+                        cur.execute("DELETE FROM virtual_positions WHERE symbol = %s", (symbol,))
+                    else:
+                        cur.execute(
+                            """
+                            UPDATE virtual_positions
+                            SET quantity = %s, last_updated = %s
+                            WHERE symbol = %s
+                            """,
+                            (new_qty, datetime.utcnow(), symbol),
+                        )
+                    entry_price_used = avg_price
+                else:
+                    # no position to sell from
+                    realized_pnl = 0.0
+                    entry_price_used = price
+        conn.commit()
+    return realized_pnl, entry_price_used
+
+
+def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM app_settings WHERE key = %s", (key,))
+            row = cur.fetchone()
+    if row:
+        return str(row[0])
+    return default
+
+
+def set_setting(key: str, value: str) -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO app_settings (key, value)
+                VALUES (%s, %s)
+                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+                """,
+                (key, value),
+            )
+        conn.commit()

@@ -10,12 +10,17 @@ function App() {
   const [symbol, setSymbol] = useState<string>("AAPL");
   const [analyzeResult, setAnalyzeResult] = useState<any | null>(null);
   const [trades, setTrades] = useState<any[]>([]);
+  const [mode, setMode] = useState<string>("virtual");
 
   useEffect(() => {
     fetch(`${API_URL}/health`)
       .then((r) => r.json())
       .then((d) => setHealth(d.status ?? "ok"))
       .catch(() => setHealth("error"));
+    fetch(`${API_URL}/config/trading_mode`)
+      .then((r) => r.json())
+      .then((d) => setMode(d.mode ?? "virtual"))
+      .catch(() => undefined);
   }, []);
 
   const handleAnalyze = async () => {
@@ -39,6 +44,19 @@ function App() {
     const res = await fetch(`${API_URL}/trades/recent`);
     const data = await res.json();
     setTrades(data);
+  };
+
+  const handleModeChange = async (newMode: string) => {
+    setMode(newMode);
+    try {
+      await fetch(`${API_URL}/config/trading_mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: newMode })
+      });
+    } catch {
+      // ignore
+    }
   };
 
   useEffect(() => {
@@ -123,6 +141,20 @@ function App() {
       <header style={{ marginBottom: 16 }}>
         <h1>AI Hedge Fund Dashboard</h1>
         <p>Backend health: {health}</p>
+        <div style={{ marginTop: 8 }}>
+          <label>
+            Trading mode:
+            <select
+              value={mode}
+              onChange={(e) => handleModeChange(e.target.value)}
+              style={{ marginLeft: 8 }}
+            >
+              <option value="virtual">virtual</option>
+              <option value="paper">paper</option>
+              <option value="live">live</option>
+            </select>
+          </label>
+        </div>
       </header>
 
       <nav style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -145,7 +177,7 @@ function App() {
           Analyze
         </button>
         <button onClick={handleTrade} style={{ marginLeft: 8 }}>
-          Trade (Paper)
+          {`Trade (${mode})`}
         </button>
       </section>
 

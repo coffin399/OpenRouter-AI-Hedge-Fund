@@ -2,12 +2,13 @@ import asyncio
 import os
 from typing import Any, Dict, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 import broker_interface
 import orchestrator
 import risk_manager
-from db import get_recent_trades
+from db import get_recent_trades, get_setting, set_setting
 from openrouter_client import OpenRouterClient
 from schemas import FinalDecision, MarketData, TradeResponse
 from nodes import data_fetcher
@@ -15,6 +16,10 @@ import nisa_mode
 
 
 app = FastAPI(title="OpenRouter AI Hedge Fund Backend")
+
+
+class TradingModeUpdate(BaseModel):
+    mode: str
 
 
 @app.get("/health")
@@ -64,6 +69,21 @@ async def is_free_model(model_id: str) -> Dict[str, Any]:
     client = OpenRouterClient()
     is_free = await client.is_free_model(model_id)
     return {"model_id": model_id, "is_free": is_free}
+
+
+@app.get("/config/trading_mode")
+async def get_trading_mode() -> Dict[str, str]:
+    mode = get_setting("TRADING_MODE", os.getenv("TRADING_MODE", "virtual")) or "virtual"
+    return {"mode": mode}
+
+
+@app.post("/config/trading_mode")
+async def set_trading_mode(payload: TradingModeUpdate) -> Dict[str, str]:
+    mode = payload.mode.lower()
+    if mode not in {"virtual", "paper", "live"}:
+        raise HTTPException(status_code=400, detail="invalid trading mode")
+    set_setting("TRADING_MODE", mode)
+    return {"mode": mode}
 
 
 @app.get("/trades/recent")
