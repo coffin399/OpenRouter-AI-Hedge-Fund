@@ -4,12 +4,17 @@ echo AI Hedge Fund System Launcher
 echo ================================
 echo.
 
-REM 環境変数ファイルの確認
+REM 環境変数ファイルの確認 (.env が無ければ .env.example から自動コピー)
 if not exist .env (
-    echo [ERROR] .env file not found!
-    echo Please copy .env.example to .env and configure your API keys.
-    pause
-    exit /b 1
+    if exist .env.example (
+        echo [.env] not found. Creating from .env.example ...
+        copy /Y .env.example .env >nul
+    ) else (
+        echo [ERROR] .env file not found!
+        echo .env.example also missing. Please create .env manually.
+        pause
+        exit /b 1
+    )
 )
 
 echo [1/4] Checking Docker...
